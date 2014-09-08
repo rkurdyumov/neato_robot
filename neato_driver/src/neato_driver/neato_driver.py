@@ -37,80 +37,17 @@ import serial
 BASE_WIDTH = 248    # millimeters
 MAX_SPEED = 300     # millimeters/second
 
-xv11_analog_sensors = [ "WallSensorInMM",
-                "BatteryVoltageInmV",
-                "LeftDropInMM",
-                "RightDropInMM",
-                "RightMagSensor",
-                "LeftMagSensor",
-                "XTemp0InC",
-                "XTemp1InC",
-                "VacuumCurrentInmA",
-                "ChargeVoltInmV",
-                "NotConnected1",
-                "BatteryTemp1InC",
-                "NotConnected2",
-                "CurrentInmA",
-                "NotConnected3",
-                "BatteryTemp0InC" ]
+"""
+This driver has been changed from the original version in order to support
+a wider range of neato models and firmware versions.
 
-xv11_digital_sensors = [ "SNSR_DC_JACK_CONNECT",
-                "SNSR_DUSTBIN_IS_IN",
-                "SNSR_LEFT_WHEEL_EXTENDED",
-                "SNSR_RIGHT_WHEEL_EXTENDED",
-                "LSIDEBIT",
-                "LFRONTBIT",
-                "RSIDEBIT",
-                "RFRONTBIT" ]
+The expected responses are not hardcoded in this driver anymore.
 
-xv11_motor_info = [ "Brush_MaxPWM",
-                "Brush_PWM",
-                "Brush_mVolts",
-                "Brush_Encoder",
-                "Brush_RPM",
-                "Vacuum_MaxPWM",
-                "Vacuum_PWM",
-                "Vacuum_CurrentInMA",
-                "Vacuum_Encoder",
-                "Vacuum_RPM",
-                "LeftWheel_MaxPWM",
-                "LeftWheel_PWM",
-                "LeftWheel_mVolts",
-                "LeftWheel_Encoder",
-                "LeftWheel_PositionInMM",
-                "LeftWheel_RPM",
-                "RightWheel_MaxPWM",
-                "RightWheel_PWM",
-                "RightWheel_mVolts",
-                "RightWheel_Encoder",
-                "RightWheel_PositionInMM",
-                "RightWheel_RPM",
-                "Laser_MaxPWM",
-                "Laser_PWM",
-                "Laser_mVolts",
-                "Laser_Encoder",
-                "Laser_RPM",
-                "Charger_MaxPWM",
-                "Charger_PWM",
-                "Charger_mAH" ]
-
-xv11_charger_info = [ "FuelPercent",
-                "BatteryOverTemp",
-                "ChargingActive",
-                "ChargingEnabled",
-                "ConfidentOnFuel",
-                "OnReservedFuel",
-                "EmptyFuel",
-                "BatteryFailure",
-                "ExtPwrPresent",
-                "ThermistorPresent[0]",
-                "ThermistorPresent[1]",
-                "BattTempCAvg[0]",
-                "BattTempCAvg[1]",
-                "VBattV",
-                "VExtV",
-                "Charger_mAH",
-                "MaxPWM" ]
+This driver reads responses until it receives a control-z. Neato Robotics has
+documented that all responses have a control-Z (^Z) at the end of the
+response string: http://www.neatorobotics.com.au/programmer-s-manual
+"""
+CTRL_Z = chr(26)
 
 class xv11():
 
@@ -120,52 +57,61 @@ class xv11():
         self.state = {"LeftWheel_PositionInMM": 0, "RightWheel_PositionInMM": 0}
         self.stop_state = True
         # turn things on
+        self.port.flushInput()
+        self.port.write("\n")
         self.setTestMode("on")
         self.setLDS("on")
 
     def exit(self):
+        self.port.flushInput()
+        self.port.write("\n")
         self.setLDS("off")
-        self.setTestMode("off")
+        self.setTestModeString("off")
 
     def setTestMode(self, value):
         """ Turn test mode on/off. """
         self.port.write("testmode " + value + "\n")
+        self.readResponseString()
 
     def setLDS(self, value):
         self.port.write("setldsrotation " + value + "\n")
+        self.readResponseString()
 
     def requestScan(self):
         """ Ask neato for an array of scan reads. """
         self.port.flushInput()
         self.port.write("getldsscan\n")
 
+    def readResponseString(self):
+        """ Returns the entire response from neato in one string. """
+        response = str()
+        self.port.timeout = 0.001
+        while True:
+            try:
+                buf = self.port.read(1024)
+            except:
+                return ""
+            if len(buf) == 0:
+                self.port.timeout *= 2
+            else:
+                response += buf
+                if buf[len(buf)-1] == CTRL_Z:
+                    break;
+        self.port.timeout = None
+        return response
+
     def getScanRanges(self):
         """ Read values of a scan -- call requestScan first! """
         ranges = list()
-        angle = 0
-        try:
-            line = self.port.readline()
-        except:
+        response = self.readResponseString()
+        for line in response.splitlines():
+            vals = line.split(",")
+            # vals[[0] angle, vals[1] range, vals[2] intensity, vals[3] error
+            if len(vals) >= 2 and vals[0].isdigit() and vals[1].isdigit():
+                ranges.append(int(vals[1])/1000.0)
+        # sanity check
+        if len(ranges) != 360:
             return []
-        while line.split(",")[0] != "AngleInDegrees":
-            try:
-                line = self.port.readline()
-            except:
-                return []
-        while angle < 360:
-            try:
-                vals = self.port.readline()
-            except:
-                pass
-            vals = vals.split(",")
-            #print angle, vals
-            try:
-                a = int(vals[0])
-                r = int(vals[1])
-                ranges.append(r/1000.0)
-            except:
-                ranges.append(0)
-            angle += 1
         return ranges
 
     def setMotors(self, l, r, s):
@@ -178,84 +124,51 @@ class xv11():
         if (int(l) == 0 and int(r) == 0 and int(s) == 0):
             if (not self.stop_state):
                 self.stop_state = True
-            l = 1
-            r = 1
-            s = 1
+                l = 1
+                r = 1
+                s = 1
         else:
             self.stop_state = False
-
         self.port.write("setmotor "+str(int(l))+" "+str(int(r))+" "+str(int(s))+"\n")
+
+    def readResponseAndUpdateState(self):
+        """ Read neato's response and update state.
+            Call this function only after sending a command. """
+        response = self.readResponseString()
+        for line in response.splitlines():
+            vals = line.split(",")
+            if len(vals) >= 2 and vals[0].isalpha() and vals[1].isdigit():
+                self.state[vals[0]] = int(vals[1])
 
     def getMotors(self):
         """ Update values for motors in the self.state dictionary.
             Returns current left, right encoder values. """
         self.port.flushInput()
         self.port.write("getmotors\n")
-        line = self.port.readline()
-        while line.split(",")[0] != "Parameter":
-            try:
-                line = self.port.readline()
-            except:
-                return [0,0]
-        for i in range(len(xv11_motor_info)):
-            try:
-                values = self.port.readline().split(",")
-                self.state[values[0]] = int(values[1])
-            except:
-                pass
+        self.readResponseAndUpdateState()
         return [self.state["LeftWheel_PositionInMM"],self.state["RightWheel_PositionInMM"]]
 
     def getAnalogSensors(self):
         """ Update values for analog sensors in the self.state dictionary. """
         self.port.write("getanalogsensors\n")
-        line = self.port.readline()
-        while line.split(",")[0] != "SensorName":
-            try:
-                line = self.port.readline()
-            except:
-                return
-        for i in range(len(xv11_analog_sensors)):
-            try:
-                values = self.port.readline().split(",")
-                self.state[values[0]] = int(values[1])
-            except:
-                pass
+        self.readResponseAndUpdateState()
 
     def getDigitalSensors(self):
         """ Update values for digital sensors in the self.state dictionary. """
         self.port.write("getdigitalsensors\n")
-        line = self.port.readline()
-        while line.split(",")[0] != "Digital Sensor Name":
-            try:
-                line = self.port.readline()
-            except:
-                return
-        for i in range(len(xv11_digital_sensors)):
-            try:
-                values = self.port.readline().split(",")
-                self.state[values[0]] = int(values[1])
-            except:
-                pass
+        self.readResponseAndUpdateState()
 
     def getCharger(self):
         """ Update values for charger/battery related info in self.state dictionary. """
         self.port.write("getcharger\n")
-        line = self.port.readline()
-        while line.split(",")[0] != "Label":
-            line = self.port.readline()
-        for i in range(len(xv11_charger_info)):
-            values = self.port.readline().split(",")
-            try:
-                self.state[values[0]] = int(values[1])
-            except:
-                pass
+        self.readResponseAndUpdateState()
 
     def setBacklight(self, value):
         if value > 0:
             self.port.write("setled backlighton")
         else:
             self.port.write("setled backlightoff")
-
+        self.readResponseString()
     #SetLED - Sets the specified LED to on,off,blink, or dim. (TestMode Only)
     #BacklightOn - LCD Backlight On  (mutually exclusive of BacklightOff)
     #BacklightOff - LCD Backlight Off (mutually exclusive of BacklightOn)
