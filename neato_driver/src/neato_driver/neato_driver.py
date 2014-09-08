@@ -106,7 +106,7 @@ class xv11():
         response = self.readResponseString()
         for line in response.splitlines():
             vals = line.split(",")
-            # vals[[0] angle, vals[1] range, vals[2] intensity, vals[3] error
+            # vals[[0] angle, vals[1] range, vals[2] intensity, vals[3] error code
             if len(vals) >= 2 and vals[0].isdigit() and vals[1].isdigit():
                 ranges.append(int(vals[1])/1000.0)
         # sanity check
@@ -132,7 +132,7 @@ class xv11():
         self.port.write("setmotor "+str(int(l))+" "+str(int(r))+" "+str(int(s))+"\n")
 
     def readResponseAndUpdateState(self):
-        """ Read neato's response and update state.
+        """ Read neato's response and update self.state dictionary.
             Call this function only after sending a command. """
         response = self.readResponseString()
         for line in response.splitlines():
@@ -169,6 +169,7 @@ class xv11():
         else:
             self.port.write("setled backlightoff")
         self.readResponseString()
+
     #SetLED - Sets the specified LED to on,off,blink, or dim. (TestMode Only)
     #BacklightOn - LCD Backlight On  (mutually exclusive of BacklightOff)
     #BacklightOff - LCD Backlight Off (mutually exclusive of BacklightOn)
