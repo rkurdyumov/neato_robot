@@ -66,7 +66,7 @@ class xv11():
         self.port.flushInput()
         self.port.write("\n")
         self.setLDS("off")
-        self.setTestModeString("off")
+        self.setTestMode("off")
 
     def setTestMode(self, value):
         """ Turn test mode on/off. """
