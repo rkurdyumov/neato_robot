@@ -6,7 +6,7 @@ This repository contains the Neato ROS drivers, catkinized, and ready for ROS Hy
 You can check this out into your catkin workspace as follows:
 
     cd <ws>/src
-    git clone https://github.com/jlohse/neato_robot.git
+    git clone https://github.com/rkurdyumov/neato_robot.git
     cd <ws>
     catkin_make
     source <ws>/devel/setup.bash
